@@ -25,48 +25,6 @@ Sync your X (Twitter) bookmarks directly into your Obsidian vault as clean, stru
 
 ---
 
-## Installation
-
-### From Obsidian's Community Plugins (recommended)
-
-1. Open **Settings → Community plugins**.
-2. Make sure **Restricted mode** is **off**.
-3. Click **Browse** and search for **X Bookmarks Sync**.
-4. Click **Install**, then **Enable**.
-
-### Via BRAT (for pre-release versions)
-
-Use this if you want early access to fixes or features that haven't been published to the community store yet.
-
-1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from the Obsidian community plugins list.
-2. In BRAT settings, click **Add Beta Plugin** and enter:
-   ```
-   hfknight/x-bookmarks-sync
-   ```
-3. Enable **X Bookmarks Sync** in **Settings → Community plugins**.
-
-### Manual
-
-1. Download the latest `x-bookmarks-sync.zip` from the [Releases page](../../releases).
-2. Extract the zip — you'll get `main.js` and `manifest.json`.
-3. In your vault, navigate to `.obsidian/plugins/` (create the folder if it doesn't exist).
-4. Create a new subfolder named `x-bookmarks-sync`.
-5. Place `main.js` and `manifest.json` inside it.
-6. Restart Obsidian, then go to **Settings → Community plugins** and enable **X Bookmarks Sync**.
-
-### From source
-
-```bash
-git clone https://github.com/hfknight/x-bookmarks-sync
-cd x-bookmarks-sync
-npm install
-npm run build:plugin
-```
-
-Copy `obsidian-plugin/main.js` and `obsidian-plugin/manifest.json` into `.obsidian/plugins/x-bookmarks-sync/` in your vault.
-
----
-
 ## Usage
 
 ### Syncing bookmarks
@@ -75,13 +33,7 @@ Copy `obsidian-plugin/main.js` and `obsidian-plugin/manifest.json` into `.obsidi
 2. A side panel opens with X.com loaded. Log in to your account if prompted.
 3. Navigate to your **Bookmarks page**.
 4. Click **Extract Bookmarks** in the panel toolbar. The plugin will automatically scroll through your bookmarks to collect them.
-
-<!-- screenshot: toolbar — add docs/assets/Toolbar.webp when available -->
-
 5. A selection modal appears listing all visible bookmarks. New ones are pre-checked; already-imported ones are grayed out.
-
-![Selection Modal](docs/assets/Selection-Modal.webp)
-
 6. Check or uncheck as needed, then click **Import Selected**.
 7. Notes appear in your configured bookmarks folder (default: `x-bookmarks/`).
 
@@ -142,6 +94,48 @@ Open **Settings → X Bookmarks Sync** to configure:
 | **Clear import history** | Removes all tracked import IDs, allowing previously imported bookmarks to be re-imported | — |
 
 > **Note on Clear import history:** This resets all record of previously imported bookmarks. On the next sync, everything will be treated as new. Use this if you want to start fresh or re-import after cleaning up your vault.
+
+---
+
+## Installation
+
+### From Obsidian's Community Plugins (recommended)
+
+1. Open **Settings → Community plugins**.
+2. Make sure **Restricted mode** is **off**.
+3. Click **Browse** and search for **X Bookmarks Sync**.
+4. Click **Install**, then **Enable**.
+
+### Via BRAT (for pre-release versions)
+
+Use this if you want early access to fixes or features that haven't been published to the community store yet.
+
+1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from the Obsidian community plugins list.
+2. In BRAT settings, click **Add Beta Plugin** and enter:
+   ```
+   hfknight/x-bookmarks-sync
+   ```
+3. Enable **X Bookmarks Sync** in **Settings → Community plugins**.
+
+### Manual
+
+1. Download the latest `x-bookmarks-sync.zip` from the [Releases page](../../releases).
+2. Extract the zip — you'll get `main.js` and `manifest.json`.
+3. In your vault, navigate to `.obsidian/plugins/` (create the folder if it doesn't exist).
+4. Create a new subfolder named `x-bookmarks-sync`.
+5. Place `main.js` and `manifest.json` inside it.
+6. Restart Obsidian, then go to **Settings → Community plugins** and enable **X Bookmarks Sync**.
+
+### From source
+
+```bash
+git clone https://github.com/hfknight/x-bookmarks-sync
+cd x-bookmarks-sync
+npm install
+npm run build:plugin
+```
+
+Copy `obsidian-plugin/main.js` and `obsidian-plugin/manifest.json` into `.obsidian/plugins/x-bookmarks-sync/` in your vault.
 
 ---
 
