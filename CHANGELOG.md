@@ -2,7 +2,7 @@
 
 ## 1.1.1
 
-- **Security patches** — dependencies updated to clear open advisories.
+- Security patches.
 
 ## 1.1.0
 
