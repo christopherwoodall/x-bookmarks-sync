@@ -34,13 +34,14 @@ Build outputs (`main.js`) are gitignored — distributed via GitHub Releases.
 
 When the user asks to release or publish a new version, do the following steps in order — confirm the version number first if not specified:
 
-1. Update `"version"` in `manifest.json` (repo root)
-2. Update `"version"` in `obsidian-plugin/manifest.json` to match
-3. Update `"version"` in `package.json` (root) to match
-4. Add the new version entry to `versions.json`: `"<version>": "<minAppVersion>"`
-5. Run `npm run build:plugin` to verify the build is clean
-6. Commit: `git add manifest.json obsidian-plugin/manifest.json versions.json package.json && git commit -m "Release <version>"`
-7. Tag: `git tag <version>`
-8. Push: `git push origin main --tags`
+1. Add a new `## <version>` section to `CHANGELOG.md` (above the previous version) with user-facing bullets. The release workflow extracts this section as the GitHub release body, and the in-app "What's new" modal reads the bundled CHANGELOG. Skip this and the release ships with a placeholder body and a silent modal.
+2. Update `"version"` in `manifest.json` (repo root)
+3. Update `"version"` in `obsidian-plugin/manifest.json` to match
+4. Update `"version"` in `package.json` (root) to match
+5. Add the new version entry to `versions.json`: `"<version>": "<minAppVersion>"`
+6. Run `npm run build:plugin` to verify the build is clean
+7. Commit: `git add CHANGELOG.md manifest.json obsidian-plugin/manifest.json versions.json package.json && git commit -m "Release <version>"`
+8. Tag: `git tag <version>`
+9. Push: `git push origin main --tags`
 
 GitHub Actions (`.github/workflows/release.yml`) automatically creates the GitHub Release with `main.js`, `manifest.json`, `versions.json`, and a zip archive when the tag is pushed.
