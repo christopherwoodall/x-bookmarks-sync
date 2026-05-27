@@ -6,7 +6,7 @@ Sync your X (Twitter) bookmarks directly into your Obsidian vault as clean, stru
 
 ---
 
-## What's new
+## What's new in 1.1.0
 
 - **Import X article body** — pull the full body of a bookmarked X long-form article into its note and rename the file to the article title. Right-click in the note, command palette, or toolbar button while viewing the article.
 - **Long tweets imported in full** — premium long-form posts (`note_tweet`) are no longer truncated at the visible "Show more" cutoff.
