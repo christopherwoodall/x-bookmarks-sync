@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2
+
+- **What's new modal** — see a summary of changes after the plugin updates.
+
 ## 1.1.1
 
 - Security patches.
