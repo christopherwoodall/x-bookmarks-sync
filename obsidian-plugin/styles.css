@@ -164,3 +164,20 @@
   width: 100%;
   height: 100%;
 }
+
+/* ── Hidden Webview (article fetch) ──────────────────────────────────── */
+.x-bookmarks-hidden-webview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 800px;
+  height: 600px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.x-bookmarks-hidden-webview webview {
+  width: 100%;
+  height: 100%;
+}

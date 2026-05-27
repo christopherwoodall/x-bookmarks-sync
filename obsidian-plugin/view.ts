@@ -4,6 +4,8 @@ import type XBookmarksSync from './main';
 import { BookmarkSelectionModal } from './modal';
 import { VIEW_TYPE, Tweet } from './types';
 
+const TWEET_OR_ARTICLE_URL = /\/(?:status|article)\/\d+/;
+
 interface ElectronWebview extends HTMLElement {
   executeJavaScript(code: string): Promise<unknown>;
   insertCSS(css: string): Promise<string>;
@@ -21,6 +23,7 @@ export class XBookmarksView extends ItemView {
   plugin: XBookmarksSync;
   webview: ElectronWebview | null;
   extractBtn: HTMLButtonElement;
+  importBtn: HTMLButtonElement;
   copyBtn: HTMLButtonElement;
   closeBtn: HTMLButtonElement;
   currentUrl: string = 'https://x.com/i/bookmarks';
@@ -83,7 +86,13 @@ export class XBookmarksView extends ItemView {
 
     const btnGroup = toolbar.createDiv({ cls: 'x-bookmarks-btn-group' });
 
-    this.copyBtn = btnGroup.createEl('button', { text: 'Copy as Markdown', cls: 'mod-cta' });
+    this.importBtn = btnGroup.createEl('button', { text: 'Import article', cls: 'mod-cta' });
+    this.importBtn.addClass('is-hidden');
+    this.importBtn.onclick = async () => {
+      await this.plugin.fetchArticleFromWebview(this.currentUrl);
+    };
+
+    this.copyBtn = btnGroup.createEl('button', { text: 'Copy main content', cls: 'mod-cta' });
     this.copyBtn.addClass('is-hidden');
     this.copyBtn.onclick = async () => {
       await this.copyAsMarkdown();
@@ -145,9 +154,33 @@ export class XBookmarksView extends ItemView {
                   var name = (userResult.core && userResult.core.name) || (userResult.legacy && userResult.legacy.name);
                   if (screenName) {
                     var id = String((obj.legacy && obj.legacy.id_str) || obj.rest_id);
-                    var text = String((obj.legacy && (obj.legacy.full_text || obj.legacy.text)) || '');
+                    // For long tweets (X Premium), full body is in note_tweet, not legacy.full_text
+                    var noteText = obj.note_tweet && obj.note_tweet.note_tweet_results && obj.note_tweet.note_tweet_results.result && obj.note_tweet.note_tweet_results.result.text;
+                    var text = String(noteText || (obj.legacy && (obj.legacy.full_text || obj.legacy.text)) || '');
                     var url = 'https://x.com/' + screenName + '/status/' + id;
-                    window.__xbsApiCollected[id] = { id: id, name: String(name || screenName), username: '@' + screenName, text: text, url: url };
+                    // Photo URLs from extended_entities (preferred) or entities.media
+                    var images = [];
+                    try {
+                      var mediaArr = (obj.legacy && obj.legacy.extended_entities && obj.legacy.extended_entities.media)
+                        || (obj.legacy && obj.legacy.entities && obj.legacy.entities.media)
+                        || [];
+                      for (var mi = 0; mi < mediaArr.length; mi++) {
+                        var m = mediaArr[mi];
+                        if (m && m.type === 'photo' && m.media_url_https) {
+                          var base = String(m.media_url_https).split('?')[0];
+                          images.push(base + '?format=jpg&name=large');
+                        }
+                      }
+                    } catch (e) {}
+                    var prev = window.__xbsApiCollected[id];
+                    // Only replace if the new text is longer (prefer note_tweet over truncated legacy)
+                    if (!prev || text.length > String(prev.text || '').length) {
+                      var entry = { id: id, name: String(name || screenName), username: '@' + screenName, text: text, url: url };
+                      if (images.length > 0) entry.images = images;
+                      window.__xbsApiCollected[id] = entry;
+                    } else if (prev && images.length > (prev.images ? prev.images.length : 0)) {
+                      prev.images = images;
+                    }
                   }
                 }
               } catch(e) {}
@@ -229,19 +262,40 @@ export class XBookmarksView extends ItemView {
       this.extractBtn.toggleClass('is-hidden', false);
       this.extractBtn.innerText = 'Extract bookmarks';
       this.extractBtn.onclick = async () => { await this.autoScrollAndExtract(); };
+      this.importBtn.toggleClass('is-hidden', true);
       this.copyBtn.toggleClass('is-hidden', true);
       if (this.syncFromLastLabel) this.syncFromLastLabel.toggleClass('is-hidden', false);
     } else {
       this.hintSpan.setText('');
       this.extractBtn.toggleClass('is-hidden', true);
+      this.importBtn.toggleClass('is-hidden', !TWEET_OR_ARTICLE_URL.test(this.currentUrl));
       this.copyBtn.toggleClass('is-hidden', false);
       if (this.syncFromLastLabel) this.syncFromLastLabel.toggleClass('is-hidden', true);
     }
   }
 
+  // Field-by-field merge: keep longest text, prefer non-empty for other fields.
+  // Returns true only when the tweet is newly added (used to count "new this iteration").
+  private mergeBookmark(tweet: Tweet): boolean {
+    const existing = this.collectedBookmarks.get(tweet.id);
+    if (!existing) {
+      this.collectedBookmarks.set(tweet.id, tweet);
+      return true;
+    }
+    const merged: Tweet = { ...existing };
+    if ((tweet.text || '').length > (existing.text || '').length) merged.text = tweet.text;
+    if (!existing.url && tweet.url) merged.url = tweet.url;
+    if (!existing.name && tweet.name) merged.name = tweet.name;
+    if (!existing.username && tweet.username) merged.username = tweet.username;
+    if (!existing.article && tweet.article) merged.article = tweet.article;
+    if ((tweet.images?.length ?? 0) > (existing.images?.length ?? 0)) merged.images = tweet.images;
+    this.collectedBookmarks.set(tweet.id, merged);
+    return false;
+  }
+
   async copyAsMarkdown() {
     if (!this.webview) return;
-    new Notice('Extracting page content\u2026');
+    new Notice('Extracting page content…');
 
     try {
       const html = await this.webview.executeJavaScript(
@@ -249,6 +303,18 @@ export class XBookmarksView extends ItemView {
       ) as string;
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
+
+      // Strip replies/parents so Defuddle only sees the focal tweet
+      const currentId = this.currentUrl.match(/(?:status|article)\/(\d+)/)?.[1];
+      const tweets = Array.from(doc.querySelectorAll('article[data-testid="tweet"]'));
+      let focal: Element | null = null;
+      if (currentId) {
+        focal = tweets.find(t => t.querySelector(`a[href*="/status/${currentId}"]`)) ?? null;
+      }
+      if (!focal && tweets.length > 0) focal = tweets[0];
+      if (focal) {
+        tweets.forEach(t => { if (t !== focal) t.remove(); });
+      }
 
       const defuddle = new Defuddle(doc, {
         url: this.currentUrl,
@@ -281,6 +347,46 @@ export class XBookmarksView extends ItemView {
   private getExtractionScript(): string {
     return `
       (function() {
+          function __xbsFindImages(tweetEl) {
+            try {
+              const imgs = tweetEl.querySelectorAll('img');
+              const urls = [];
+              for (const img of imgs) {
+                const src = typeof img.src === 'string' ? img.src : (img.getAttribute ? img.getAttribute('src') || '' : '');
+                if (/^https?:\\/\\/pbs\\.twimg\\.com\\/media\\//.test(src)) {
+                  const parts = src.split('?');
+                  const base = parts[0];
+                  const params = new URLSearchParams(parts[1] || '');
+                  const format = params.get('format') || 'jpg';
+                  const normalized = base + '?format=' + format + '&name=large';
+                  if (!urls.includes(normalized)) urls.push(normalized);
+                }
+              }
+              return urls;
+            } catch (e) { return []; }
+          }
+
+          function __xbsFindArticle(tweetEl) {
+            try {
+              const anchors = tweetEl.querySelectorAll('a');
+              let articleAnchor = null;
+              for (const a of anchors) {
+                const href = typeof a.href === 'string' ? a.href : (a.getAttribute ? a.getAttribute('href') || '' : '');
+                if (/^https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com\\/[^\\/]+\\/article\\/\\d+/.test(href)) {
+                  articleAnchor = a;
+                  break;
+                }
+              }
+              if (!articleAnchor) return null;
+              const articleUrl = typeof articleAnchor.href === 'string' ? articleAnchor.href : articleAnchor.getAttribute('href');
+              const card = articleAnchor.closest('[data-testid^="card."]') || articleAnchor.parentElement;
+              const cardText = (card ? card.innerText : articleAnchor.innerText) || '';
+              const lines = cardText.split(/\\n+/).map(s => s.trim()).filter(Boolean);
+              const title = lines[0] || (articleAnchor.innerText || '').trim() || '';
+              const excerpt = lines.slice(1).join('\\n').trim();
+              return { url: String(articleUrl), title: String(title), excerpt: String(excerpt) };
+            } catch (e) { return null; }
+          }
           try {
               const tweets = document.querySelectorAll('article[data-testid="tweet"]');
               const results = [];
@@ -298,14 +404,20 @@ export class XBookmarksView extends ItemView {
 
                       const linkEl = Array.from(tweet.querySelectorAll('a')).find(a => {
                           const href = typeof a.href === 'string' ? a.href : (a.getAttribute ? a.getAttribute('href') : '');
-                          return href && href.includes('/status/');
+                          return href && /\\/(?:status|article)\\/\\d+/.test(href);
                       });
                       const url = linkEl ? (typeof linkEl.href === 'string' ? linkEl.href : linkEl.getAttribute('href')) : '';
-                      const idMatch = url ? url.match(/status\\/(\\d+)/) : null;
+                      const idMatch = url ? url.match(/(?:status|article)\\/(\\d+)/) : null;
                       const id = idMatch ? idMatch[1] : Date.now().toString() + Math.random().toString().slice(2,5);
 
-                      if (text || url) {
-                          results.push({ id: String(id), name: String(name), username: String(username), text: String(text), url: String(url) });
+                      const article = __xbsFindArticle(tweet);
+                      const images = __xbsFindImages(tweet);
+
+                      if (text || url || article || images.length > 0) {
+                          const result = { id: String(id), name: String(name), username: String(username), text: String(text), url: String(url) };
+                          if (article) result.article = article;
+                          if (images.length > 0) result.images = images;
+                          results.push(result);
                       } else {
                           skipped.push({ domIndex: idx, hasText: !!text, hasUrl: !!url, hasUserName: !!userEl, outerHTML: tweet.outerHTML.substring(0, 300) });
                       }
@@ -388,6 +500,47 @@ export class XBookmarksView extends ItemView {
           window.__xbsObserverInstalled = true;
           window.__xbsCollected = window.__xbsCollected || {};
 
+          function __xbsFindArticle(tweetEl) {
+            try {
+              const anchors = tweetEl.querySelectorAll('a');
+              let articleAnchor = null;
+              for (const a of anchors) {
+                const href = typeof a.href === 'string' ? a.href : (a.getAttribute ? a.getAttribute('href') || '' : '');
+                if (/^https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com\\/[^\\/]+\\/article\\/\\d+/.test(href)) {
+                  articleAnchor = a;
+                  break;
+                }
+              }
+              if (!articleAnchor) return null;
+              const articleUrl = typeof articleAnchor.href === 'string' ? articleAnchor.href : articleAnchor.getAttribute('href');
+              const card = articleAnchor.closest('[data-testid^="card."]') || articleAnchor.parentElement;
+              const cardText = (card ? card.innerText : articleAnchor.innerText) || '';
+              const lines = cardText.split(/\\n+/).map(s => s.trim()).filter(Boolean);
+              const title = lines[0] || (articleAnchor.innerText || '').trim() || '';
+              const excerpt = lines.slice(1).join('\\n').trim();
+              return { url: String(articleUrl), title: String(title), excerpt: String(excerpt) };
+            } catch (e) { return null; }
+          }
+
+          function __xbsFindImages(tweetEl) {
+            try {
+              const imgs = tweetEl.querySelectorAll('img');
+              const urls = [];
+              for (const img of imgs) {
+                const src = typeof img.src === 'string' ? img.src : (img.getAttribute ? img.getAttribute('src') || '' : '');
+                if (/^https?:\\/\\/pbs\\.twimg\\.com\\/media\\//.test(src)) {
+                  const parts = src.split('?');
+                  const base = parts[0];
+                  const params = new URLSearchParams(parts[1] || '');
+                  const format = params.get('format') || 'jpg';
+                  const normalized = base + '?format=' + format + '&name=large';
+                  if (!urls.includes(normalized)) urls.push(normalized);
+                }
+              }
+              return urls;
+            } catch (e) { return []; }
+          }
+
           function __xbsExtractTweet(tweetEl) {
             try {
               const textEl = tweetEl.querySelector('[data-testid="tweetText"]');
@@ -401,17 +554,23 @@ export class XBookmarksView extends ItemView {
 
               const linkEl = Array.from(tweetEl.querySelectorAll('a')).find(a => {
                 const href = typeof a.href === 'string' ? a.href : (a.getAttribute ? a.getAttribute('href') : '');
-                return href && href.includes('/status/');
+                return href && /\\/(?:status|article)\\/\\d+/.test(href);
               });
               const url = linkEl ? (typeof linkEl.href === 'string' ? linkEl.href : linkEl.getAttribute('href')) : '';
-              const idMatch = url ? url.match(/status\\/(\\d+)/) : null;
+              const idMatch = url ? url.match(/(?:status|article)\\/(\\d+)/) : null;
               const id = idMatch ? idMatch[1] : null;
 
-              if (id && (text || url)) {
-                window.__xbsCollected[id] = {
+              const article = __xbsFindArticle(tweetEl);
+              const images = __xbsFindImages(tweetEl);
+
+              if (id && (text || url || article || images.length > 0)) {
+                const entry = {
                   id: String(id), name: String(name),
                   username: String(username), text: String(text), url: String(url)
                 };
+                if (article) entry.article = article;
+                if (images.length > 0) entry.images = images;
+                window.__xbsCollected[id] = entry;
               }
             } catch(e) {}
           }
@@ -469,7 +628,7 @@ export class XBookmarksView extends ItemView {
       const preResult = await this.webview.executeJavaScript(this.getExtractionScript()) as ExtractionResult;
       if (preResult && preResult.success && preResult.data) {
         for (const tweet of preResult.data) {
-          this.collectedBookmarks.set(tweet.id, tweet);
+          this.mergeBookmark(tweet);
         }
       }
 
@@ -534,10 +693,7 @@ export class XBookmarksView extends ItemView {
         ) as ExtractionResult;
         if (observerResult && observerResult.success && observerResult.data) {
           for (const tweet of observerResult.data) {
-            if (!this.collectedBookmarks.has(tweet.id)) {
-              this.collectedBookmarks.set(tweet.id, tweet);
-              newThisIteration++;
-            }
+            if (this.mergeBookmark(tweet)) newThisIteration++;
           }
         }
 
@@ -549,10 +705,7 @@ export class XBookmarksView extends ItemView {
         ) as string;
         const apiResult = (apiJson ? JSON.parse(apiJson) : []) as Tweet[];
         for (const tweet of apiResult) {
-          if (!this.collectedBookmarks.has(tweet.id)) {
-            this.collectedBookmarks.set(tweet.id, tweet);
-            newThisIteration++;
-          }
+          if (this.mergeBookmark(tweet)) newThisIteration++;
         }
 
         // Fallback: DOM extraction catches tweets without a /status/ URL (no stable id)
@@ -560,10 +713,7 @@ export class XBookmarksView extends ItemView {
         const result = await this.webview.executeJavaScript(this.getExtractionScript()) as ExtractionResult;
         if (result && result.success && result.data) {
           for (const tweet of result.data) {
-            if (!this.collectedBookmarks.has(tweet.id)) {
-              this.collectedBookmarks.set(tweet.id, tweet);
-              newThisIteration++;
-            }
+            if (this.mergeBookmark(tweet)) newThisIteration++;
           }
         }
         // { success: false } treated as zero new tweets — noNewCount increments normally
@@ -614,9 +764,7 @@ export class XBookmarksView extends ItemView {
         const finalSources = (finalJson ? JSON.parse(finalJson) : { observer: [], api: [] }) as { observer: Tweet[]; api: Tweet[] };
         if (finalSources) {
           for (const tweet of [...(finalSources.observer || []), ...(finalSources.api || [])]) {
-            if (!this.collectedBookmarks.has(tweet.id)) {
-              this.collectedBookmarks.set(tweet.id, tweet);
-            }
+            this.mergeBookmark(tweet);
           }
         }
       } catch { /* webview may be gone */ }

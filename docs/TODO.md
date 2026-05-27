@@ -2,8 +2,11 @@
 
 ## Planned
 
-- [ ] **Fix toolbar wrapping on narrow panels**
+- [x] **Fix toolbar wrapping on narrow panels**
   The side panel toolbar can wrap text and buttons when the panel is resized narrow. Improve the layout so toolbar elements stay on one line or gracefully adapt without wrapping — likely needs flexible sizing or overflow handling on the toolbar container. The webview height is also hardcoded to `calc(100% - 50px)` which will misalign if the toolbar grows taller.
+
+- [x] **Improve Copy as Markdown function**
+  "Copy as Markdown" should only copy tweet or article content, not the replies under it
 
 - [ ] **Add funding URL**
   Add a `fundingUrl` field to `manifest.json` (and `obsidian-plugin/manifest.json`) pointing to a support page (e.g. Buy Me a Coffee, GitHub Sponsors). Also add a funding/support section to `README.md`.

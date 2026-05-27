@@ -1,7 +1,23 @@
-import { Plugin, addIcon, Notice, TFolder } from 'obsidian';
+import { Plugin, addIcon, Notice, TFile, TFolder, MarkdownView } from 'obsidian';
+import Defuddle from 'defuddle/full';
 import { VIEW_TYPE, XBookmarksSyncData, Tweet } from './types';
 import { XBookmarksView } from './view';
 import { XBookmarksSyncSettingTab } from './settings-tab';
+
+interface ElectronWebview extends HTMLElement {
+  executeJavaScript(code: string): Promise<unknown>;
+}
+
+type FetchArticleResult =
+  | { ok: true; markdown: string; title: string }
+  | { ok: false; reason: 'not-article' | 'fetch-failed' };
+
+const X_URL_PATTERN = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/(?:status|article)\/\d+/;
+const FULL_ARTICLE_HEADING = /^##\s+Full article\s*$/m;
+
+function toArticleUrl(url: string): string {
+  return url.replace(/(\/[^/]+)\/status\/(\d+)/, '$1/article/$2');
+}
 
 export default class XBookmarksSync extends Plugin {
   importedIds: Set<string> = new Set();
@@ -39,6 +55,45 @@ export default class XBookmarksSync extends Plugin {
       }
     });
 
+    this.addCommand({
+      id: 'fetch-article-body',
+      name: 'Import X article body to current note',
+      callback: () => {
+        void this.fetchArticleForActiveFile();
+      }
+    });
+
+    this.addCommand({
+      id: 'reimport-bookmark',
+      name: 'Re-import this bookmark on next sync',
+      callback: () => {
+        void this.reimportBookmarkForActiveFile();
+      }
+    });
+
+    this.registerEvent(
+      this.app.workspace.on('editor-menu', (menu, _editor, view) => {
+        if (!(view instanceof MarkdownView) || !view.file) return;
+        const fm = this.app.metadataCache.getFileCache(view.file)?.frontmatter;
+        const sourceUrl =
+          (fm && typeof fm.article_url === 'string' && fm.article_url) ||
+          (fm && typeof fm.url === 'string' && fm.url) || '';
+        if (!X_URL_PATTERN.test(sourceUrl)) return;
+
+        menu.addItem((item) => {
+          item.setTitle('Import X article body')
+            .setIcon('download')
+            .onClick(() => { void this.fetchArticleForActiveFile(); });
+        });
+
+        menu.addItem((item) => {
+          item.setTitle('Re-import this bookmark on next sync')
+            .setIcon('refresh-cw')
+            .onClick(() => { void this.reimportBookmarkForActiveFile(); });
+        });
+      })
+    );
+
     this.registerObsidianProtocolHandler('x-bookmarks', (params) => {
       if (params.url) {
         void this.openUrlInWebview(params.url);
@@ -75,6 +130,164 @@ export default class XBookmarksSync extends Plugin {
     }
   }
 
+  async fetchArticleForActiveFile() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice('No active note.');
+      return;
+    }
+
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    let sourceUrl: string | undefined;
+    if (fm) {
+      if (typeof fm.article_url === 'string') sourceUrl = fm.article_url;
+      else if (typeof fm.url === 'string') sourceUrl = fm.url;
+    }
+    if (!sourceUrl || !X_URL_PATTERN.test(sourceUrl)) {
+      new Notice('No X URL found in this note.');
+      return;
+    }
+    await this.appendArticleToNote(file, sourceUrl);
+  }
+
+  async reimportBookmarkForActiveFile() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice('No active note.');
+      return;
+    }
+
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const id = fm && fm.id != null ? String(fm.id) : '';
+    if (!id) {
+      new Notice('No bookmark id found in this note.');
+      return;
+    }
+
+    this.importedIds.delete(id);
+    await this.saveSettings();
+    await this.app.vault.trash(file, true);
+    new Notice('Bookmark removed. Run sync to re-import.');
+  }
+
+  async fetchArticleFromWebview(currentUrl: string) {
+    const idMatch = currentUrl.match(/(?:status|article)\/(\d+)/);
+    if (!idMatch) {
+      new Notice('No tweet id in current URL.');
+      return;
+    }
+    const file = this.findBookmarkNoteById(idMatch[1]);
+    if (!file) {
+      new Notice('No bookmark note found for this tweet.');
+      return;
+    }
+    await this.appendArticleToNote(file, currentUrl);
+  }
+
+  private findBookmarkNoteById(id: string): TFile | null {
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (fm && String(fm.id ?? '') === id) return file;
+    }
+    return null;
+  }
+
+  private async appendArticleToNote(file: TFile, sourceUrl: string) {
+    const existing = await this.app.vault.read(file);
+    if (FULL_ARTICLE_HEADING.test(existing)) {
+      new Notice('Article body already added to this note.');
+      return;
+    }
+
+    const articleUrl = toArticleUrl(sourceUrl);
+    new Notice('Fetching article body…');
+    const result = await this.fetchArticleByHiddenWebview(articleUrl);
+    if (!result.ok) {
+      if (result.reason === 'not-article') {
+        new Notice('This tweet has no article body.');
+      } else {
+        new Notice('Failed to fetch article body.');
+      }
+      return;
+    }
+
+    await this.app.vault.modify(file, `${existing}\n\n## Full article\n\n${result.markdown}\n`);
+
+    let renamedTo: string | null = null;
+    if (result.title.trim()) {
+      try {
+        const dir = file.parent?.path ?? '';
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        const idStr = String(fm?.id ?? '');
+        const authorStr = String(fm?.author ?? '');
+        const desired = this.buildFileNameInDir(dir, idStr, authorStr, result.title);
+        if (desired !== file.path) {
+          let target = desired;
+          let counter = 1;
+          while (this.app.vault.getAbstractFileByPath(target)) {
+            target = desired.replace(/\.md$/, `-${counter}.md`);
+            counter++;
+          }
+          await this.app.vault.rename(file, target);
+          renamedTo = target;
+        }
+      } catch (err) {
+        console.error('rename failed:', err);
+      }
+    }
+
+    new Notice(renamedTo ? 'Article body added and note renamed.' : 'Article body added.');
+  }
+
+  async fetchArticleByHiddenWebview(url: string): Promise<FetchArticleResult> {
+    const container = document.body.createDiv({ cls: 'x-bookmarks-hidden-webview' });
+    const webview = container.createEl('webview' as keyof HTMLElementTagNameMap, {
+      attr: { src: url },
+    }) as unknown as ElectronWebview;
+
+    try {
+      await new Promise<void>((resolve) => {
+        const timeout = activeWindow.setTimeout(() => {
+          webview.removeEventListener('did-finish-load', handler);
+          resolve();
+        }, 30000);
+        const handler = () => {
+          activeWindow.clearTimeout(timeout);
+          webview.removeEventListener('did-finish-load', handler);
+          resolve();
+        };
+        webview.addEventListener('did-finish-load', handler);
+      });
+
+      // Extra settle delay so React finishes rendering article body
+      await new Promise(resolve => activeWindow.setTimeout(resolve, 2000));
+
+      // If X redirected us off /article/, this tweet has no article body
+      const finalUrl = await webview.executeJavaScript('window.location.href') as string;
+      if (typeof finalUrl !== 'string' || !/\/article\/\d+/.test(finalUrl)) {
+        return { ok: false, reason: 'not-article' };
+      }
+
+      const html = await webview.executeJavaScript(
+        'document.documentElement.outerHTML'
+      ) as string;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const defuddle = new Defuddle(doc, { url, markdown: true });
+      const result = await defuddle.parseAsync();
+      if (result && result.content) {
+        const title = (result as { title?: unknown }).title;
+        return { ok: true, markdown: result.content, title: typeof title === 'string' ? title : '' };
+      }
+      return { ok: false, reason: 'fetch-failed' };
+    } catch (err) {
+      console.error('fetchArticleByHiddenWebview error:', err);
+      return { ok: false, reason: 'fetch-failed' };
+    } finally {
+      container.detach();
+    }
+  }
+
   async activateView() {
     const { workspace } = this.app;
 
@@ -94,22 +307,25 @@ export default class XBookmarksSync extends Plugin {
   }
 
   getFileName(tweet: Tweet): string {
-    const tweetDate = tweet.id && /^\d+$/.test(tweet.id)
-      ? new Date(Number((BigInt(tweet.id) >> BigInt(22)) + BigInt(1288834974657)))
+    return this.buildFileNameInDir(this.settings.defaultFolder, tweet.id, tweet.name, tweet.text);
+  }
+
+  private buildFileNameInDir(dir: string, id: string, author: string, titleRaw: string): string {
+    const tweetDate = id && /^\d+$/.test(id)
+      ? new Date(Number((BigInt(id) >> BigInt(22)) + BigInt(1288834974657)))
       : new Date();
     const month = String(tweetDate.getMonth() + 1).padStart(2, '0');
     const day = String(tweetDate.getDate()).padStart(2, '0');
     const year = tweetDate.getFullYear();
     const date = `${year}-${month}-${day}`;
 
-    const author = (tweet.name || 'Unknown')
-      .replace(/[\\/:"*?<>|]/g, '')
-      .trim();
-    let title = (tweet.text || 'Bookmark').split('\n')[0].substring(0, 40);
+    const sanitizedAuthor = (author || 'Unknown').replace(/[\\/:"*?<>|]/g, '').trim();
+    let title = (titleRaw || 'Bookmark').split('\n')[0].substring(0, 40);
     title = title.replace(/[\\/:"*?<>|]/g, '').trim();
     if (!title) title = 'Bookmark';
 
-    return `${this.settings.defaultFolder}/${date}-${author}-${title}.md`;
+    const base = `${date}-${sanitizedAuthor}-${title}.md`;
+    return dir ? `${dir}/${base}` : base;
   }
 
   isTweetImported(tweet: Tweet): boolean {
@@ -153,19 +369,35 @@ export default class XBookmarksSync extends Plugin {
     const safeAuthor = `"${(tweet.name || '').replace(/"/g, '\\"')}"`;
     const safeUsername = `"${(tweet.username || '').replace(/"/g, '\\"')}"`;
     const safeUrl = `"${tweet.url}"`;
+    const articleUrlLine = tweet.article
+      ? `\narticle_url: "${tweet.article.url.replace(/"/g, '\\"')}"`
+      : '';
+
+    let articleSection = '';
+    if (tweet.article) {
+      const parts: string[] = ['\n\n## Linked article\n'];
+      if (tweet.article.title) parts.push(`\n**${tweet.article.title}**\n`);
+      if (tweet.article.excerpt) parts.push(`\n${tweet.article.excerpt}\n`);
+      parts.push(`\n[Read full article](${tweet.article.url})`);
+      articleSection = parts.join('');
+    }
+
+    const imagesSection = tweet.images && tweet.images.length > 0
+      ? '\n\n' + tweet.images.map(u => `![](${u})`).join('\n')
+      : '';
 
     return `---
 id: ${safeId}
 author: ${safeAuthor}
 username: ${safeUsername}
 scraped_date: ${date}
-url: ${safeUrl}
+url: ${safeUrl}${articleUrlLine}
 tags: [${this.settings.defaultTags.join(', ')}]
 ---
 
 # Tweet by ${tweet.name} (${tweet.username})
 
-${tweet.text}
+${tweet.text}${imagesSection}${articleSection}
 
 [View on X](${tweet.url}) | [Open in Obsidian Webview](obsidian://x-bookmarks?url=${encodeURIComponent(tweet.url)})
 `;
