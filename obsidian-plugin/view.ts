@@ -325,6 +325,7 @@ export class XBookmarksView extends ItemView {
       const result = await defuddle.parseAsync();
 
       if (result && result.content) {
+        // Clipboard usage is write-only: the plugin never reads the clipboard.
         await navigator.clipboard.writeText(result.content);
         new Notice('Copied to clipboard!');
       } else {

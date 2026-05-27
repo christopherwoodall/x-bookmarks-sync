@@ -190,9 +190,31 @@ export default class XBookmarksSync extends Plugin {
   }
 
   private findBookmarkNoteById(id: string): TFile | null {
+    // Scoped search first: most bookmarks live under the configured folder,
+    // so we narrow enumeration to that subtree instead of the whole vault.
+    const folder = this.app.vault.getAbstractFileByPath(this.settings.defaultFolder);
+    if (folder instanceof TFolder) {
+      const inFolder = this.searchFolderForId(folder, id);
+      if (inFolder) return inFolder;
+    }
+    // Fallback: scan the full vault only if the user has moved a bookmark
+    // out of the configured folder.
     for (const file of this.app.vault.getMarkdownFiles()) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
       if (fm && String(fm.id ?? '') === id) return file;
+    }
+    return null;
+  }
+
+  private searchFolderForId(folder: TFolder, id: string): TFile | null {
+    for (const child of folder.children) {
+      if (child instanceof TFile && child.extension === 'md') {
+        const fm = this.app.metadataCache.getFileCache(child)?.frontmatter;
+        if (fm && String(fm.id ?? '') === id) return child;
+      } else if (child instanceof TFolder) {
+        const nested = this.searchFolderForId(child, id);
+        if (nested) return nested;
+      }
     }
     return null;
   }
