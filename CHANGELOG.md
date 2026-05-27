@@ -2,7 +2,7 @@
 
 ## 1.1.1
 
-- **Security patches** — upgraded bundled `defuddle` to 0.18.x (transitively patches `@xmldom/xmldom`) and `esbuild` to 0.28.x, plus npm overrides for `fast-uri` and `picomatch`. Clears all open Dependabot advisories.
+- **Security patches** — dependencies updated to clear open advisories.
 
 ## 1.1.0
 
