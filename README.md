@@ -2,7 +2,7 @@
 
 Sync your X (Twitter) bookmarks directly into your Obsidian vault as clean, structured Markdown notes. No API key. No OAuth. Just your existing browser session.
 
-![Hero](docs/assets/Hero.png)
+![Hero](docs/assets/Hero.webp)
 
 ---
 
@@ -12,10 +12,14 @@ Sync your X (Twitter) bookmarks directly into your Obsidian vault as clean, stru
 - **Selective import** — choose exactly which bookmarks to save from a checklist modal
 - **Incremental sync** — "Sync from last" mode scrolls only until it reaches already-imported bookmarks, so large libraries stay fast
 - **Duplicate detection** — already-imported bookmarks are grayed out and skipped automatically
+- **Long tweets supported** — premium long-form posts are imported in full, not truncated at the visible "Show more" cutoff
+- **Images embedded** — photo attachments on bookmarked tweets are saved as Markdown image links to the X CDN
+- **Import X article body** — for tweets that are native X long-form articles, fetch the full article body into the note and rename the file to the article title (right-click in note, command palette, or toolbar button while viewing the article)
+- **Re-import on next sync** — delete a single bookmark from history with one click and have it re-imported on the next sync
+- **Copy main content** — clipboard-copy the focal tweet/article from the webview, replies stripped, powered by [Defuddle](https://github.com/kepano/defuddle)
 - **Configurable folder & tags** — set where notes land and what tags are applied in plugin settings
 - **Structured Markdown notes** — each bookmark is saved with YAML frontmatter (id, author, url, tags, date)
 - **Deep-link back** — each note includes an `obsidian://` link to re-open the tweet in the webview
-- **Copy as Markdown** — while viewing any tweet or article in the webview, extract and copy its content as Markdown (powered by [Defuddle](https://github.com/kepano/defuddle)), useful when you bookmarked an X article
 
 > **Desktop only.** This plugin uses Electron's `<webview>` tag, which is not available in Obsidian mobile.
 
@@ -63,11 +67,11 @@ Copy `obsidian-plugin/main.js` and `obsidian-plugin/manifest.json` into `.obsidi
 3. Navigate to your **Bookmarks page**.
 4. Click **Extract Bookmarks** in the panel toolbar. The plugin will automatically scroll through your bookmarks to collect them.
 
-<!-- screenshot: toolbar — add docs/assets/Toolbar.png when available -->
+<!-- screenshot: toolbar — add docs/assets/Toolbar.webp when available -->
 
 5. A selection modal appears listing all visible bookmarks. New ones are pre-checked; already-imported ones are grayed out.
 
-![Selection Modal](docs/assets/Selection-Modal.png)
+![Selection Modal](docs/assets/Selection-Modal.webp)
 
 6. Check or uncheck as needed, then click **Import Selected**.
 7. Notes appear in your configured bookmarks folder (default: `x-bookmarks/`).
@@ -78,13 +82,23 @@ Check **Sync from last** in the toolbar before clicking **Extract Bookmarks**. T
 
 > **First sync:** The checkbox is unchecked by default until you have completed at least one full sync. This ensures your entire bookmark history is captured on the first run.
 
-### Copy as Markdown
+### Copy main content
 
-While browsing any page in the webview, click **Copy as MD** to extract and copy the content as Markdown to your clipboard.
+While viewing any X page in the webview, click **Copy main content** in the toolbar to copy the focal tweet or article as Markdown to your clipboard. Replies and surrounding thread context are stripped automatically — you get just the post you opened.
 
-This is especially handy when a bookmark links to an article or long-form post. Use the **Open in Obsidian Webview** link at the bottom of a saved note to open the linked page, then click **Copy as MD** to capture the full article content. Paste it directly into your note in Obsidian for a complete, annotatable record.
+### Import X article body
 
-![Copy as Markdown](docs/assets/Example-Note-CopyMD.png)
+For bookmarks that point at native X long-form articles (URLs like `x.com/<user>/status/<id>` rendered as an Article), the plugin can pull the full article body into the note. Three entry points:
+
+- **In the note** — right-click in the editor of a bookmark note → **Import X article body**.
+- **From the command palette** — **Import X article body to current note**.
+- **From the webview** — open the tweet via its `obsidian://` link; while on a `/status/` or `/article/` page, click **Import article** in the toolbar. The plugin finds the matching bookmark note by id, fetches the article in a hidden background webview, appends the body under a **`## Full article`** heading, and renames the file to the article's title (keeping the `{date}-{author}-` prefix).
+
+If the bookmarked tweet isn't actually an article, the plugin shows a Notice and skips the import — no replies or unrelated content get pulled in.
+
+### Re-import a bookmark
+
+Need to refresh a single note (for example, you imported it before long-tweet support landed)? Right-click in the note's editor → **Re-import this bookmark on next sync** (also in the command palette). The plugin removes the tweet id from import history and moves the file to the system trash; on the next sync the bookmark appears as new in the selection modal.
 
 ---
 
@@ -92,7 +106,7 @@ This is especially handy when a bookmark links to an article or long-form post. 
 
 Open **Settings → X Bookmarks Sync** to configure:
 
-![Settings Tab](docs/assets/Settings-Tab.png)
+![Settings Tab](docs/assets/Settings-Tab.webp)
 
 | Setting | Description | Default |
 |---|---|---|
@@ -107,7 +121,7 @@ Open **Settings → X Bookmarks Sync** to configure:
 
 ## Note Format
 
-Each saved bookmark becomes a Markdown file with this structure:
+Each saved bookmark becomes a Markdown file. Optional sections are added when the bookmark contains an article card, photos, or has had its article body imported.
 
 ```markdown
 ---
@@ -116,6 +130,7 @@ author: "Display Name"
 username: "@handle"
 scraped_date: 2024-01-15
 url: "https://x.com/handle/status/1234567890"
+article_url: "https://x.com/handle/article/1234567890"   # only if the tweet links to an X article
 tags: [twitter, bookmark]
 ---
 
@@ -123,10 +138,23 @@ tags: [twitter, bookmark]
 
 The full text of the tweet goes here...
 
+![](https://pbs.twimg.com/media/EXAMPLE.jpg?format=jpg&name=large)
+
+## Linked article            # only if the tweet contains an X article card
+
+**Article title here**
+
+Short excerpt rendered in the card…
+
+[Read full article](https://x.com/...)
+
 [View on X](https://x.com/...) | [Open in Obsidian Webview](obsidian://x-bookmarks?url=...)
+
+## Full article              # added by Import X article body
+…full Defuddle-extracted article body…
 ```
 
-**File naming:** `{folder}/{YYYY-MM-DD}-{author}-{first 40 chars of tweet}.md`
+**File naming:** `{folder}/{YYYY-MM-DD}-{author}-{first 40 chars of tweet}.md`. After **Import X article body** runs, the title segment is replaced with the article's actual title (sanitized, truncated to 40 chars); the date and author prefix are preserved.
 
 ---
 
@@ -134,7 +162,9 @@ The full text of the tweet goes here...
 
 - **Desktop only** — requires Electron's `<webview>` tag, not available in Obsidian mobile.
 - **Subject to X.com DOM changes** — if X changes their markup, the scraper selectors may need updating.
-- **Deleted notes are not re-synced automatically** — if you delete a note from your vault, it won't be re-imported unless you clear the import history. As a workaround, delete all notes in your bookmarks folder, go to **Settings → X Bookmarks Sync → Clear import history**, then run a full sync. (A smarter per-note re-sync is planned.)
+- **Videos & GIFs not imported** — only photos are embedded; for videos/GIFs the note links back to X. Future work.
+- **CDN-hosted images** — embedded images reference X's CDN (`pbs.twimg.com`). If X removes the image, the link in your note breaks. Local-download support is planned.
+- **Existing notes don't backfill new fields** — when you upgrade and gain new features (like long-tweet text or image embedding), already-imported notes stay as they were. Use **Re-import this bookmark on next sync** to refresh individual notes, or **Clear import history** to wipe everything and re-sync.
 
 ---
 
