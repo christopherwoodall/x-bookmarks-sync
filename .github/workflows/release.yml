@@ -57,6 +57,13 @@ jobs:
             capture { print }
           ' README.md > release_notes.md
 
+          # Drop trailing blank lines so we can detect "nothing was extracted"
+          sed -i.bak -e :a -e '/^$/{$d;N;ba' -e '}' release_notes.md && rm -f release_notes.md.bak
+
+          if [ ! -s release_notes.md ]; then
+            printf 'Release %s\n' "$VERSION" > release_notes.md
+          fi
+
           PREV=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -1)
           if printf '%s' "$PREV" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
             printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
