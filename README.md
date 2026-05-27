@@ -2,7 +2,7 @@
 
 Sync your X (Twitter) bookmarks directly into your Obsidian vault as clean, structured Markdown notes. No API key. No OAuth. Just your existing browser session.
 
-![Hero](docs/assets/Hero.webp)
+![Sync demo](docs/assets/Sync-Demo.webp)
 
 ---
 
@@ -92,6 +92,8 @@ Check **Sync from last** in the toolbar before clicking **Extract Bookmarks**. T
 > **First sync:** The checkbox is unchecked by default until you have completed at least one full sync. This ensures your entire bookmark history is captured on the first run.
 
 ### Import X article body
+
+![Import article demo](docs/assets/Import-Article-Demo.webp)
 
 For bookmarks that point at native X long-form articles (URLs like `x.com/<user>/status/<id>` rendered as an Article), the plugin can pull the full article body into the note. Three entry points:
 
