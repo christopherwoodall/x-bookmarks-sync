@@ -29,6 +29,7 @@ export default class XBookmarksSync extends Plugin {
     defaultTags: ['twitter', 'bookmark'],
     lastSyncAt: null,
     lastShownVersion: null,
+    forceFullScanOnNextSync: false,
   };
   pendingOpenUrl: string | null = null;
 
@@ -40,6 +41,7 @@ export default class XBookmarksSync extends Plugin {
       defaultTags: data?.defaultTags ?? ['twitter', 'bookmark'],
       lastSyncAt: data?.lastSyncAt ?? null,
       lastShownVersion: data?.lastShownVersion ?? null,
+      forceFullScanOnNextSync: data?.forceFullScanOnNextSync ?? false,
     };
     this.importedIds = new Set(this.settings.importedIds);
     await this.maybeShowWhatsNew();
@@ -49,14 +51,14 @@ export default class XBookmarksSync extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new XBookmarksView(leaf, this));
 
     this.addRibbonIcon('x-bookmarks-sync', 'Open X bookmarks', () => {
-      void this.activateView();
+      void this.openBookmarksView();
     });
 
     this.addCommand({
       id: 'open-x-bookmarks',
       name: 'Open X bookmarks view',
       callback: () => {
-        void this.activateView();
+        void this.openBookmarksView();
       }
     });
 
@@ -135,6 +137,17 @@ export default class XBookmarksSync extends Plugin {
     }
   }
 
+  async openBookmarksView() {
+    // Reveal the view; if it's open on a tweet/article page (e.g. via protocol handler),
+    // navigate to the bookmarks list so the user gets the extract toolbar.
+    const existingView = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view as XBookmarksView | undefined;
+    if (existingView && !existingView.currentUrl.includes('/bookmarks')) {
+      await this.openUrlInWebview('https://x.com/i/bookmarks');
+      return;
+    }
+    await this.activateView();
+  }
+
   async fetchArticleForActiveFile() {
     const file = this.app.workspace.getActiveFile();
     if (!file) {
@@ -170,9 +183,10 @@ export default class XBookmarksSync extends Plugin {
     }
 
     this.importedIds.delete(id);
+    this.settings.forceFullScanOnNextSync = true;
     await this.saveSettings();
     await this.app.vault.trash(file, true);
-    new Notice('Bookmark removed. Run sync to re-import.');
+    new Notice('Bookmark removed. Next sync will do a full scan to find it.');
   }
 
   async fetchArticleFromWebview(currentUrl: string) {

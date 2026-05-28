@@ -482,7 +482,15 @@ export class XBookmarksView extends ItemView {
       this.collectedBookmarks = new Map();
       let noNewCount = 0;
       let iterationCount = 0;
-      const incrementalMode = this.incrementalMode;
+      // A re-imported bookmark may sit deep in the timeline past the incremental
+      // waterline, so a one-shot flag forces a full scan to guarantee we reach it.
+      const fullScanOverride = this.plugin.settings.forceFullScanOnNextSync;
+      const incrementalMode = this.incrementalMode && !fullScanOverride;
+      const overrideActiveThisRun = fullScanOverride && this.incrementalMode;
+      if (overrideActiveThisRun) {
+        if (this.syncFromLastCheckbox) this.syncFromLastCheckbox.checked = false;
+        new Notice('Re-imported bookmark detected — running a full scan to find it.');
+      }
 
       this.setScrollingToolbar(0);
 
@@ -647,6 +655,7 @@ export class XBookmarksView extends ItemView {
           await this.cleanup();
           this.cancelRequested = false;
           this.isScrolling = false;
+          if (overrideActiveThisRun && this.syncFromLastCheckbox) this.syncFromLastCheckbox.checked = this.incrementalMode;
           this.updateToolbar();
           return;
         }
@@ -655,6 +664,7 @@ export class XBookmarksView extends ItemView {
         if (!this.currentUrl.includes('/bookmarks')) {
           await this.cleanup();
           this.isScrolling = false;
+          if (overrideActiveThisRun && this.syncFromLastCheckbox) this.syncFromLastCheckbox.checked = this.incrementalMode;
           this.updateToolbar();
           new Notice('Navigated away — bookmark capture cancelled.');
           return;
@@ -743,8 +753,12 @@ export class XBookmarksView extends ItemView {
           noNewCount = 0;
         }
 
-        // Update live count in toolbar
+        // Update live count in toolbar — show verification phase once new tweets stop arriving
+        // so the user sees the loop progressing past active loading.
         this.setScrollingToolbar(this.collectedBookmarks.size);
+        if (noNewCount > 0 && this.hintSpan) {
+          this.hintSpan.setText(`Finalizing — ${this.collectedBookmarks.size} found`);
+        }
 
         if (noNewCount >= 5 || iterationCount >= 500) {
           break;
@@ -773,7 +787,15 @@ export class XBookmarksView extends ItemView {
       // After loop
       await this.cleanup();
       this.isScrolling = false;
+      if (overrideActiveThisRun && this.syncFromLastCheckbox) this.syncFromLastCheckbox.checked = this.incrementalMode;
       this.updateToolbar();
+
+      // Consume the one-shot full-scan flag now that the scroll reached the bottom.
+      // Cancel/navigate-away paths return early above and leave the flag set so the next attempt retries.
+      if (fullScanOverride) {
+        this.plugin.settings.forceFullScanOnNextSync = false;
+        await this.plugin.saveSettings();
+      }
 
       if (this.collectedBookmarks.size === 0) {
         new Notice('No bookmarks found.');
@@ -784,6 +806,9 @@ export class XBookmarksView extends ItemView {
       if (this.hintSpan) {
         this.hintSpan.setText(`Preparing ${count} bookmark${count !== 1 ? 's' : ''}…`);
       }
+      // Yield so the "Preparing…" text actually paints before the modal's synchronous
+      // DOM build (300+ items) takes the main thread again.
+      await new Promise(resolve => activeWindow.setTimeout(resolve, 16));
 
       const modal = new BookmarkSelectionModal(
         this.app,

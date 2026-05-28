@@ -22,4 +22,5 @@ export interface XBookmarksSyncData {
   defaultTags: string[];
   lastSyncAt: string | null;
   lastShownVersion: string | null;
+  forceFullScanOnNextSync: boolean;
 }
