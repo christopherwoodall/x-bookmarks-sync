@@ -252,7 +252,8 @@ export default class XBookmarksSync extends Plugin {
       return;
     }
 
-    await this.app.vault.modify(file, `${existing}\n\n## Full article\n\n${result.markdown}\n`);
+    const titleLine = result.title.trim() ? `### ${result.title.trim()}\n\n` : '';
+    await this.app.vault.modify(file, `${existing}\n\n## Full article\n\n${titleLine}${result.markdown}\n`);
 
     let renamedTo: string | null = null;
     if (result.title.trim()) {
