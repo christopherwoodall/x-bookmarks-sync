@@ -17,6 +17,7 @@ This is an Obsidian plugin that syncs X (Twitter) bookmarks to an Obsidian vault
 - Register views, commands, and ribbon icons via Plugin lifecycle methods (`onload`/`onunload`)
 - Always clean up in `onunload`: call `this.app.workspace.detachLeavesOfType(VIEW_TYPE)` for any registered views
 - `isDesktopOnly: true` in manifest — plugin uses Electron's `<webview>` tag
+- To read an X page in the background (article body, truncated-tweet recovery), reuse the hidden off-screen webview pattern (`x-bookmarks-hidden-webview` + `createEl('webview' …)`) — see `fetchArticleByHiddenWebview` (main.ts) and `recoverTruncatedBookmarks` (view.ts). Don't navigate the visible view and rely on redirecting back.
 
 ## Build
 
