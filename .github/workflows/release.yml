@@ -30,6 +30,11 @@ jobs:
         run: npm run build:plugin
 
       - name: Attest build provenance
+        # Provenance is supplementary supply-chain metadata, not required for a valid
+        # release. A transient GitHub attestation-service outage (hit during the 1.1.8
+        # release) must never block publishing — so this step can fail without failing
+        # the job or skipping "Create GitHub Release" below.
+        continue-on-error: true
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
