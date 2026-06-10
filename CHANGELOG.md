@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.8
+
+- **Videos now appear in imported notes** — bookmarks containing a video or GIF now import with the video's thumbnail (marked ▶ Video) that you can click to open and watch on X, instead of importing with no media at all.
+
 ## 1.1.7
 
 - **Long tweets no longer import with their text cut off** — when X serves only a shortened "Show more" preview of a long tweet during sync, the plugin now pulls the full text from the tweet's own page so the complete body is saved.
