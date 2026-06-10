@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p obsidian-plugin/tsconfig.json"
   },
   "dependencies": {
-    "defuddle": "^0.18.1"
+    "defuddle": "0.18.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
@@ -20,12 +20,12 @@
     "esbuild": "^0.28.0",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.1.9",
-    "obsidian": "^1.12.3",
+    "obsidian": "1.12.3",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"
   },
   "overrides": {
-    "fast-uri": "^3.1.2",
-    "picomatch": "^4.0.4"
+    "fast-uri": "3.1.2",
+    "picomatch": "4.0.4"
   }
 }
